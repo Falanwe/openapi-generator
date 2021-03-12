@@ -45,7 +45,7 @@ bool {{classname}}::IsValid() const
 	return true;
 }
 
-void {{classname}}::HandleResponse(FHttpResponsePtr HttpResponse, bool bSucceeded, Response& InOutResponse) const
+bool {{classname}}::HandleResponse(FHttpResponsePtr HttpResponse, bool bSucceeded, Response& InOutResponse) const
 {
 	InOutResponse.SetHttpResponse(HttpResponse);
 	InOutResponse.SetSuccessful(bSucceeded);
@@ -58,7 +58,7 @@ void {{classname}}::HandleResponse(FHttpResponsePtr HttpResponse, bool bSucceede
 
 		if (ContentType.IsEmpty())
 		{
-			return; // Nothing to parse
+			return true; // Nothing to parse
 		}
 		else if (ContentType.StartsWith(TEXT("application/json")) || ContentType.StartsWith("text/json"))
 		{
@@ -70,32 +70,34 @@ void {{classname}}::HandleResponse(FHttpResponsePtr HttpResponse, bool bSucceede
 			if (FJsonSerializer::Deserialize(Reader, JsonValue) && JsonValue.IsValid())
 			{
 				if (InOutResponse.FromJson(JsonValue))
-					return; // Successfully parsed
+					return true; // Successfully parsed
 			}
 		}
 		else if(ContentType.StartsWith(TEXT("text/plain")))
 		{
 			Content = HttpResponse->GetContentAsString();
 			InOutResponse.SetResponseString(Content);
-			return; // Successfully parsed
+			return true; // Successfully parsed
 		}
 
 		// Report the parse error but do not mark the request as unsuccessful. Data could be partial or malformed, but the request succeeded.
 		UE_LOG(Log{{unrealModuleName}}, Error, TEXT("Failed to deserialize Http response content (type:%s):\n%s"), *ContentType , *Content);
-		return;
+		return true;
 	}
 
 	// By default, assume we failed to establish connection
 	InOutResponse.SetHttpResponseCode(EHttpResponseCodes::RequestTimeout);
+	return false;
 }
 
 {{#operations}}
 {{#operation}}
-bool {{classname}}::{{operationIdCamelCase}}(const {{operationIdCamelCase}}Request& Request, const F{{operationIdCamelCase}}Delegate& Delegate /*= F{{operationIdCamelCase}}Delegate()*/) const
+bool {{classname}}::{{operationIdCamelCase}}(const {{operationIdCamelCase}}Request& Request, const F{{operationIdCamelCase}}Delegate& Delegate /*= F{{operationIdCamelCase}}Delegate()*/)
 {
 	if (!IsValid())
 		return false;
 
+	RetryCount = 0;
 	TSharedRef<IHttpRequest> HttpRequest = FHttpModule::Get().CreateRequest();
 	HttpRequest->SetURL(*(Url + Request.ComputePath()));
 
@@ -110,11 +112,18 @@ bool {{classname}}::{{operationIdCamelCase}}(const {{operationIdCamelCase}}Reque
 	return HttpRequest->ProcessRequest();
 }
 
-void {{classname}}::On{{operationIdCamelCase}}Response(FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded, F{{operationIdCamelCase}}Delegate Delegate) const
+void {{classname}}::On{{operationIdCamelCase}}Response(FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded, F{{operationIdCamelCase}}Delegate Delegate)
 {
 	{{operationIdCamelCase}}Response Response;
-	HandleResponse(HttpResponse, bSucceeded, Response);
-	Delegate.ExecuteIfBound(Response);
+	if (!HandleResponse(HttpResponse, bSucceeded, Response) && RetryCount < MaxRetries)
+	{
+		RetryCount++;
+		HttpRequest->ProcessRequest();		
+	}
+	else
+	{
+		Delegate.ExecuteIfBound(Response);
+	}
 }
 
 {{/operation}}

@@ -25,16 +25,23 @@ public:
     {{#operations}}{{#operation}}DECLARE_DELEGATE_OneParam(F{{operationIdCamelCase}}Delegate, const {{operationIdCamelCase}}Response&);
     {{/operation}}{{/operations}}
     {{#operations}}{{#operation}}{{#description}}/* {{{description}}} */
-	{{/description}}bool {{operationIdCamelCase}}(const {{operationIdCamelCase}}Request& Request, const F{{operationIdCamelCase}}Delegate& Delegate = F{{operationIdCamelCase}}Delegate()) const;
+	{{/description}}bool {{operationIdCamelCase}}(const {{operationIdCamelCase}}Request& Request, const F{{operationIdCamelCase}}Delegate& Delegate = F{{operationIdCamelCase}}Delegate());
     {{/operation}}{{/operations}}
+	const int& GetMaxRetries() { return MaxRetries; }
+	void SetMaxRetries(int Retries) { MaxRetries = Retries; }
+
 private:
-    {{#operations}}{{#operation}}void On{{operationIdCamelCase}}Response(FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded, F{{operationIdCamelCase}}Delegate Delegate) const;
+    {{#operations}}{{#operation}}void On{{operationIdCamelCase}}Response(FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded, F{{operationIdCamelCase}}Delegate Delegate);
     {{/operation}}{{/operations}}
 	bool IsValid() const;
-	void HandleResponse(FHttpResponsePtr HttpResponse, bool bSucceeded, Response& InOutResponse) const;
+	bool HandleResponse(FHttpResponsePtr HttpResponse, bool bSucceeded, Response& InOutResponse) const;
 
 	FString Url;
 	TMap<FString,FString> AdditionalHeaderParams;
+	
+	//TODO: support multiple parallel retries
+	int RetryCount = 0;
+	int MaxRetries = 0;
 };
 	
 {{#cppNamespaceDeclarations}}

@@ -22,8 +22,8 @@ typedef TSharedRef<TJsonWriter<>> JsonWriter;
 class {{dllapi}} HttpFileInput
 {
 public:
-	HttpFileInput(const TCHAR* InFilePath);
-	HttpFileInput(const FString& InFilePath);
+	explicit HttpFileInput(const TCHAR* InFilePath);
+	explicit HttpFileInput(const FString& InFilePath);
 
 	// This will automatically set the content type if not already set
     void SetFilePath(const TCHAR* InFilePath);
@@ -268,11 +268,42 @@ inline bool TryGetJsonValue(const TSharedPtr<FJsonValue>& JsonValue, FString& Va
 		return false;
 }
 
+inline bool ParseIso8601(const FString& DateTimeString, FDateTime& OutDateTime)
+{
+	// We cannot call directly FDateTime::ParseIso8601 because it does not allow for precision beyond the millisecond, but DateTimeString
+	// might have more digits
+	int32 DotIndex;
+	FString stringToParse = DateTimeString;
+	if (DateTimeString.FindChar('.', DotIndex))
+	{
+		int32 TimeZoneIndex;
+		if (DateTimeString.FindChar('Z', TimeZoneIndex) || DateTimeString.FindChar('+', TimeZoneIndex)
+			|| DateTimeString.FindChar('-', TimeZoneIndex))
+		{
+			// the string contains a time zone designator starting at TimeZoneIndex
+			if (TimeZoneIndex > DotIndex + 4)
+			{
+				stringToParse = DateTimeString.Left(DotIndex + 4) + DateTimeString.RightChop(TimeZoneIndex);
+			}
+		}
+		else
+		{
+			// the string does not contain a time zone designator, trim it to the millisecond
+			stringToParse = DateTimeString.Left(DotIndex + 4);
+		}
+	}
+
+	return FDateTime::ParseIso8601(*stringToParse, OutDateTime);
+}
+
 inline bool TryGetJsonValue(const TSharedPtr<FJsonValue>& JsonValue, FDateTime& Value)
 {
 	FString TmpValue;
 	if (JsonValue->TryGetString(TmpValue))
-		return FDateTime::Parse(TmpValue, Value);
+	{
+		// try to parse using Iso 8601. If it fails, try Http formats. If that fails, try Unreal format
+		return ParseIso8601(TmpValue, Value) || FDateTime::ParseHttpDate(TmpValue, Value) || FDateTime::Parse(TmpValue, Value);
+	}
 	else
 		return false;
 }
